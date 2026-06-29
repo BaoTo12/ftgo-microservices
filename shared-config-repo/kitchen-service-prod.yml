@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://prod-db-server:5432/kitchendb_prod
+    username: prod_kitchen_user
+    password: prod_password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate

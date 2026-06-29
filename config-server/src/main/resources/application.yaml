@@ -1,0 +1,18 @@
+server:
+  port: 8888
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native # use file-based config server
+  cloud:
+    config:
+      server:
+        native:
+          search-location: ../shared-config-repo
+#        git:  -----------> Git-based config server
+#          uri: https://github.com/your-username/ftgo-config-repo.git
+#          search-paths: 'order-service,kitchen-service' # Optional subdirectories
+#          clone-on-start: true                          # Validates the repo connection during startup
+
+
