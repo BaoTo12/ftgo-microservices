@@ -1,3 +1,5 @@
 spring:
   application:
     name: order-service
+  profiles:
+    active: dev # Default active configuration profile

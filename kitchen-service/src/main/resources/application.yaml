@@ -1,3 +1,5 @@
 spring:
   application:
     name: kitchen-service
+  profiles:
+    active: dev

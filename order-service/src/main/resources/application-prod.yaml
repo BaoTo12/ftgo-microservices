@@ -1,0 +1,11 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/
+    username: prod_admin
+    password: ${PROD_DB_PASSWORD}
+
+example:
+  property: "Development Configuration Value"

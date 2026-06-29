@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  order-db:
+    image: postgres:15-alpine
+    container_name: ftgo-order-db
+    environment:
+      POSTGRES_DB: ${ORDER_DB_NAME}
+      POSTGRES_USER: ${ORDER_DB_USER}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+    ports:
+      - "${ORDER_DB_PORT}:5432"
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+
+  kitchen-db:
+    image: postgres:15-alpine
+    container_name: ftgo-kitchen-db
+    environment:
+      POSTGRES_DB: ${KITCHEN_DB_NAME}
+      POSTGRES_USER: ${KITCHEN_DB_USER}
+      POSTGRES_PASSWORD: ${KITCHEN_DB_PASSWORD}
+    ports:
+      - "${KITCHEN_DB_PORT}:5432"
+    volumes:
+      - kitchen-db-data:/var/lib/postgresql/data
+
+volumes:
+  order-db-data:
+  kitchen-db-data:
