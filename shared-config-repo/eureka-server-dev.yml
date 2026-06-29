@@ -1,0 +1,11 @@
+eureka:
+  client:
+    # Tell Eureka client libraries not to register this registry instance itself
+    registerWithEureka: false
+    # Tell Eureka client libraries not to pull a copy of the registry locally
+    fetchRegistry: false
+    serviceUrl:
+      defaultZone: http://localhost:8070/eureka/
+  server:
+    # Wait 5 minutes for peer servers to replicate registry details before starting
+    waitTimeInMsWhenSyncEmpty: 0

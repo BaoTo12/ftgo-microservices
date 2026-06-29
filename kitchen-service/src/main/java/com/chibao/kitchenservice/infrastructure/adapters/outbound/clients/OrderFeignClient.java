@@ -7,9 +7,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
 @FeignClient(
-        name = "order-service",
-        url = "http://localhost:8081" // Switch to standard HTTP
-        // configuration = FeignClientSSLConfig.class // Comment out SSL config
+        name = "order-service"
+        // configuration = FeignClientSSLConfig.class
 )
 public interface OrderFeignClient {
     @RequestMapping(
