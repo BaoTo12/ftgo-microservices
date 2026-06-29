@@ -9,7 +9,8 @@ spring:
     config:
       server:
         native:
-          search-location: ../shared-config-repo
+          search-locations:
+            - file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/shared-config-repo
 #        git:  -----------> Git-based config server
 #          uri: https://github.com/your-username/ftgo-config-repo.git
 #          search-paths: 'order-service,kitchen-service' # Optional subdirectories

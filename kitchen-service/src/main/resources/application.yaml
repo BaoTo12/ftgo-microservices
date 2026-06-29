@@ -1,5 +1,21 @@
+server:
+  port: 8082
 spring:
   application:
     name: kitchen-service
+  config:
+    import: "optional:configserver:http://localhost:8888"
+
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 3000   # 3 seconds
+      request-read-timeout: 5000      # 5 seconds
+      retry:
+        max-attempts: 3
+        initial-interval: 1000      # 1 second
+        multiplier: 1.5
+        max-interval: 5000           # 5 seconds
+
   profiles:
     active: dev

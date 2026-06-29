@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   order-db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: ftgo-order-db
     environment:
       POSTGRES_DB: ${ORDER_DB_NAME}
@@ -14,7 +14,7 @@ services:
       - order-db-data:/var/lib/postgresql/data
 
   kitchen-db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: ftgo-kitchen-db
     environment:
       POSTGRES_DB: ${KITCHEN_DB_NAME}

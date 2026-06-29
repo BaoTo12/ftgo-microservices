@@ -10,10 +10,12 @@ import com.chibao.orderservice.application.ports.outbound.PaymentClient;
 import com.chibao.orderservice.domain.model.Order;
 import com.chibao.orderservice.domain.model.OrderLineItem;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.UUID;
 
+@Component
 @RequiredArgsConstructor
 public class OrderManagementService implements OrderManagementUseCase {
     private final OrderRepository repository;

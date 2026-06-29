@@ -6,15 +6,16 @@ import com.chibao.kitchenservice.application.inbound.result.TicketResult;
 import com.chibao.kitchenservice.application.mapper.TicketMapper;
 import com.chibao.kitchenservice.application.outbound.TicketRepository;
 import com.chibao.kitchenservice.domain.model.Ticket;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
+@Component
+@RequiredArgsConstructor
 public class TicketManagementService implements TicketManagementUseCase {
     private final TicketRepository repository;
 
-    public TicketManagementService(TicketRepository repository) {
-        this.repository = repository;
-    }
 
     @Override
     public TicketResult createTicket(CreateTicketCommand command) {

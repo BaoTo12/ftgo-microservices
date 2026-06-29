@@ -1,5 +1,29 @@
+server:
+  port: 8081 # Đặt port cố định tại local của service con
 spring:
   application:
     name: order-service
   profiles:
     active: dev # Default active configuration profile
+  config:
+    import: "optional:configserver:http://localhost:8888"
+
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 3000   # 3 seconds
+      request-read-timeout: 5000      # 5 seconds
+      retry:
+        max-attempts: 3
+        initial-interval: 1000      # 1 second
+        multiplier: 1.5
+        max-interval: 5000           # 5 seconds
+# optional: prefix của Spring Config Data API --> quyết nếu không kết nội được config server --> vẫn
+# chạy --> nếu không có optional --> fail fast
+
+logging:
+  level:
+    # Bật log debug cho toàn bộ quá trình xử lý cấu hình của Spring Boot
+    org.springframework.boot.context.config: DEBUG
+    # Bật log debug chuyên sâu cho Config Client (Gửi request, nhận payload)
+    org.springframework.cloud.config.client: DEBUG

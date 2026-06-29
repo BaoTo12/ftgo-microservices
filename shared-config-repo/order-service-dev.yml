@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/orderdb_dev
-    username: postgres
-    password: password
+    url: jdbc:postgresql://localhost:${ORDER_DB_PORT:5431}/${ORDER_DB_NAME:orderdb}
+    username: ${ORDER_DB_USER:order_user}
+    password: ${ORDER_DB_PASSWORD:order_pass}
     driver-class-name: org.postgresql.Driver
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
