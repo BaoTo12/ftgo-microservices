@@ -1,10 +1,10 @@
-package com.chibao.foodtogosystem;
+package com.chibao.kitchenservice;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class FoodToGoSystemApplicationTests {
+class KitchenServiceApplicationTests {
 
     @Test
     void contextLoads() {

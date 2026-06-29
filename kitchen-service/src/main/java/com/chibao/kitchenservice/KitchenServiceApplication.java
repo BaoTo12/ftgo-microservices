@@ -1,13 +1,13 @@
-package com.chibao.foodtogosystem;
+package com.chibao.kitchenservice;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class FoodToGoSystemApplication {
+public class KitchenServiceApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(FoodToGoSystemApplication.class, args);
+        SpringApplication.run(KitchenServiceApplication.class, args);
     }
 
 }
