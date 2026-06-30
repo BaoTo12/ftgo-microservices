@@ -3,6 +3,7 @@ package com.chibao.orderservice.infrastructure.adapters.outbound.clients;
 import com.chibao.orderservice.application.ports.outbound.KitchenClient;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,7 @@ public class KitchenClientAdapter implements KitchenClient {
 
     @Override
     @Retry(name = "kitchenRetry")
+    @RateLimiter(name = "kitchenRateLimiter", fallbackMethod = "createTicketFallback")
     @Bulkhead(name = "kitchenBulkhead", type = Bulkhead.Type.THREADPOOL)
     @CircuitBreaker(name = "kitchenCircuitBreaker", fallbackMethod = "createTicketFallback")
     public boolean createTicket(String orderId, String restaurantId) {

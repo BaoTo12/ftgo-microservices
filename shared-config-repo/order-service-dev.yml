@@ -87,3 +87,13 @@ resilience4j:
           - java.util.concurrent.TimeoutException
         ignoreExceptions:
           - feign.FeignException.BadRequest
+  ratelimiter:
+    instances:
+      kitchenRateLimiter:
+        limitForPeriod: 50            # Allow 50 total operations
+        limitRefreshPeriod: 1s         # Refresh window every 1 second
+        timeoutDuration: 500ms        # Thread waits up to 500ms for a token before failing
+      paymentRateLimiter:
+        limitForPeriod: 30            # Allow 30 operations
+        limitRefreshPeriod: 1s         # Refresh window every 1 second
+        timeoutDuration: 1000ms       # Thread waits up to 1 second for a token
