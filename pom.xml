@@ -19,7 +19,7 @@
         <module>order-service</module>
         <module>kitchen-service</module>
         <module>config-server</module>
-        <module>eurekaserver</module>
+        <module>eureka-server</module>
     </modules>
 
     <properties>
