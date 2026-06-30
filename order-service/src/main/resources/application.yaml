@@ -27,3 +27,5 @@ logging:
     org.springframework.boot.context.config: DEBUG
     # Bật log debug chuyên sâu cho Config Client (Gửi request, nhận payload)
     org.springframework.cloud.config.client: DEBUG
+
+

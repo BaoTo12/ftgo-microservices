@@ -21,5 +21,5 @@ public interface KitchenFeignClient {
             value = "/v1/tickets",
             consumes = "application/json"
     )
-    String createTicket(@RequestBody TicketCreateRequest request);
+    void createTicket(@RequestBody TicketCreateRequest request);
 }

@@ -2,7 +2,7 @@
 
 Distributed architectures are vulnerable to cascading failures. If a single microservice runs slowly or goes offline, calling services can quickly exhaust their thread pools waiting for responses, bringing down the entire application. 
 
-This guide details how to apply **Resilience4j** patterns inside the **`ftgo-microservices`** workspace to protect service boundaries, limit resource utilization, and degrade gracefully.
+This guide details how to apply **Resilience4j** patterns inside the **`ftgo-microservices`** workspace, mapped directly to the actual API flows of the system.
 
 ---
 
@@ -10,158 +10,61 @@ This guide details how to apply **Resilience4j** patterns inside the **`ftgo-mic
 
 | Pattern | Goal | Where to Apply (Target Class) | Why There? |
 | :--- | :--- | :--- | :--- |
-| **Circuit Breaker** | Stops invoking a downstream dependency once error thresholds are exceeded. | [KitchenClientAdapter](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/outbound/clients/KitchenClientAdapter.java) & [PaymentClientAdapter](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/outbound/clients/PaymentClientAdapter.java) | Prevents caller threads from block-waiting on dead services and failing cascadingly. |
-| **Retry** | Re-issues failed requests automatically under the assumption of transient faults. | [PaymentClientAdapter](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/outbound/clients/PaymentClientAdapter.java) | Handles network blips or short-lived database timeouts during payment handshakes. |
-| **Bulkhead** | Restricts concurrent execution resources allocated to a specific call. | [KitchenClientAdapter](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/outbound/clients/KitchenClientAdapter.java) | Isolates failures; a slow `kitchen-service` cannot consume all Tomcat request threads. |
-| **Rate Limiter** | Restricts the frequency of calls a service accepts. | [OrderRestController](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/inbound/controller/OrderRestController.java) | Protects the system from excessive load or Denial of Service (DoS) attempts at api entrypoints. |
-| **TimeLimiter** | Enforces a hard execution time limit on asynchronous operations. | Outbound Async Client Adapters | Halts calls that take too long, protecting resources from slow network sockets. |
-| **Fallback** | Provides an alternative code execution path when a failure occurs. | [KitchenClientAdapter](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/outbound/clients/KitchenClientAdapter.java) | Permits degraded but operational processing (e.g. queuing tickets locally). |
+| **Rate Limiter** | Restricts incoming traffic to prevent server overload or DoS attempts. | `com.chibao.orderservice.infrastructure.adapters.inbound.controller.OrderRestController` | Protects the API entry point `POST /v1/orders` from traffic spikes. |
+| **Circuit Breaker** | Stops invoking a downstream dependency once error thresholds are exceeded. | `com.chibao.orderservice.infrastructure.adapters.outbound.clients.KitchenClientAdapter` | Prevents order placement threads from block-waiting when `kitchen-service` is down. |
+| **Fallback** | Provides alternative code execution paths when a service fails. | `com.chibao.orderservice.infrastructure.adapters.outbound.clients.KitchenClientAdapter` | Lets the Order Placement Saga complete with status `PENDING` rather than crashing with a 500 error. |
+| **Retry** | Automatically re-issues failed requests for transient faults. | `com.chibao.orderservice.infrastructure.adapters.outbound.clients.PaymentClientAdapter` | Recovers from network blips or timeouts when communicating with external Payment Providers. |
+| **Bulkhead** | Restricts concurrent threads allocated to a specific outbound call path. | `com.chibao.orderservice.infrastructure.adapters.outbound.clients.KitchenClientAdapter` | Limits resources consumed by `kitchen-service` requests, ensuring `order-service` stays responsive. |
+| **TimeLimiter** | Enforces a hard execution timeout on asynchronous calls. | Asynchronous Client Adapters | Automatically cancels long-running CompletableFuture tasks if they exceed time ceilings. |
 
 ---
 
-## 2. Deep Dive: Architectural Rationale & Code Explanation
+## 2. API Flow Protection & Code Explanations
 
-### 2.1 Circuit Breaker & Fallback
-
-#### Where to Apply:
-Outbound adapters making remote HTTP calls, specifically [KitchenClientAdapter.java](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/outbound/clients/KitchenClientAdapter.java).
-
-#### Why Apply There:
-During order creation, `order-service` must communicate with `kitchen-service`. If `kitchen-service` is down, the Circuit Breaker trips immediately (transitioning from `CLOSED` to `OPEN`), rejecting subsequent calls without hitting the network. The **Fallback** mechanism catches this exception and returns a dummy ticket state, letting the Order creation finish in a `PENDING` state rather than throwing a raw 500 error to the customer.
-
-#### Code Explanation:
-```java
-@Component
-public class KitchenClientAdapter implements KitchenClient {
-
-    private final KitchenFeignClient kitchenFeignClient;
-
-    public KitchenClientAdapter(KitchenFeignClient kitchenFeignClient) {
-        this.kitchenFeignClient = kitchenFeignClient;
-    }
-
-    @Override
-    @CircuitBreaker(name = "kitchenService", fallbackMethod = "createTicketFallback")
-    public boolean createTicket(String orderId, String restaurantId) {
-        // Active HTTP network call via Feign Client
-        TicketCreateRequest request = new TicketCreateRequest(orderId, orderId, restaurantId);
-        kitchenFeignClient.createTicket(request);
-        return true;
-    }
-
-    // Fallback method MUST have the same signature as the target method, plus a Throwable parameter
-    public boolean createTicketFallback(String orderId, String restaurantId, Throwable t) {
-        System.err.println("Circuit Breaker Tripped! Fallback executed. Reason: " + t.getMessage());
-        
-        // Graceful degradation: return true to let order placement proceed, 
-        // and register a background job/outbox to sync ticket creation later.
-        return true; 
-    }
-}
-```
-
----
-
-### 2.2 Retry
+### 2.1 Inbound Protection: Rate Limiting on Order Creation
 
 #### Where to Apply:
-Outbound network adapters that call external systems like [PaymentClientAdapter.java](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/outbound/clients/PaymentClientAdapter.java).
+The entry controller endpoint `POST /v1/orders` in `com.chibao.orderservice.infrastructure.adapters.inbound.controller.OrderRestController`.
 
 #### Why Apply There:
-External payment processors might periodically reject socket connections or experience brief network lag. If the call fails, retrying it 2 or 3 times with a short delay (exponential backoff) often succeeds, making the service resilient without requiring user re-submission.
+To protect downstream relational databases and network layers from being overwhelmed during flash sales or traffic spikes.
 
-#### Code Explanation:
-```java
-@Component
-public class PaymentClientAdapter implements PaymentClient {
+#### Execution Flow Diagram:
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Limiter as orderCreationLimit Rate Limiter
+    participant Controller as OrderRestController
+    participant Service as OrderManagementService
 
-    @Override
-    @Retry(name = "paymentService", fallbackMethod = "authorizePaymentFallback")
-    public boolean authorizePayment(String consumerId, double amount) {
-        System.out.println("Processing payment for consumer: " + consumerId);
-        // External network call logic...
-        return true;
-    }
-
-    public boolean authorizePaymentFallback(String consumerId, double amount, Throwable t) {
-        System.err.println("All payment retries failed. Declining transaction.");
-        return false;
-    }
-}
+    Client->>Limiter: POST /v1/orders
+    alt Acquire Permit Success (Requests < 50/sec)
+        Limiter->>Controller: Forward call
+        Controller->>Service: createOrder(command)
+        Service-->>Client: Return 200 OK (OrderResponse)
+    else Acquire Permit Fails (Requests >= 50/sec)
+        Limiter--XClient: Fail Fast: 429 Too Many Requests
+    end
 ```
-
-##### Accompanying YAML Configuration (served via Config Server):
-```yaml
-resilience4j:
-  retry:
-    instances:
-      paymentService:
-        maxAttempts: 3            # Total attempts (1 initial + 2 retries)
-        waitDuration: 1000ms       # Delay between attempts
-        enableExponentialBackoff: true
-        exponentialBackoffMultiplier: 2
-```
-
----
-
-### 2.3 Bulkhead
-
-#### Where to Apply:
-Service calls that are resource-heavy or depend on unreliable dependencies, such as the `KitchenClientAdapter` calls.
-
-#### Why Apply There:
-If `kitchen-service` slows down, requests start piling up in the Tomcat pool. A Bulkhead acts as a firewall by restricting the maximum number of concurrent threads allowed to execute `KitchenClientAdapter` methods. Even if all kitchen threads are saturated, the remaining threads in `order-service` are free to serve other API endpoints like order lookups or cancellations.
-
-#### Code Explanation (Semaphore-based):
-```java
-@Component
-public class KitchenClientAdapter implements KitchenClient {
-
-    @Override
-    @Bulkhead(name = "kitchenBulkhead", type = Bulkhead.Type.SEMAPHORE)
-    public boolean createTicket(String orderId, String restaurantId) {
-        // Limited concurrent threads allowed here
-        return true;
-    }
-}
-```
-
-##### Accompanying YAML Configuration:
-```yaml
-resilience4j:
-  bulkhead:
-    instances:
-      kitchenBulkhead:
-        maxConcurrentCalls: 10     # Max threads allowed in this method concurrently
-        maxWaitDuration: 500ms     # Time to wait for a free semaphore slot before failing
-```
-
----
-
-### 2.4 Rate Limiter
-
-#### Where to Apply:
-Inbound Controller classes, such as the [OrderRestController.java](file:///C:/Users/Admin/Desktop/projects/ftgo-microservices/order-service/src/main/java/com/chibao/orderservice/infrastructure/adapters/inbound/controller/OrderRestController.java).
-
-#### Why Apply There:
-Protects entry endpoints from API abuse, brute-force spamming, or server overload by limiting the number of calls allowed in a given time window.
 
 #### Code Explanation:
 ```java
 @RestController
 @RequestMapping("/v1/orders")
 public class OrderRestController {
+    private final OrderManagementUseCase useCase;
 
     @PostMapping
     @RateLimiter(name = "orderCreationLimit")
-    public OrderResponse createOrder(@Valid @RequestBody OrderCreateRequest request) {
-        // Enforces rate limits on incoming POST request
-        return orderService.create(request);
+    public OrderResponse createOrder(@Valid @RequestBody OrderCreateRequest dto) {
+        OrderResult result = useCase.createOrder(OrderControllerMapper.toCommand(dto));
+        return OrderControllerMapper.toResponse(result);
     }
 }
 ```
 
-##### Accompanying YAML Configuration:
+##### Accompanying YAML Configuration (in `order-service-dev.yml`):
 ```yaml
 resilience4j:
   ratelimiter:
@@ -174,13 +77,239 @@ resilience4j:
 
 ---
 
-### 2.5 TimeLimiter
+### 2.2 Outbound Protection: Circuit Breaker & Fallback on Ticket Creation
 
 #### Where to Apply:
-Asynchronous/Reactive network boundaries where hanging connections must be forcibly killed.
+Outbound adapter interface in `com.chibao.orderservice.infrastructure.adapters.outbound.clients.KitchenClientAdapter` which calls the `/v1/tickets` endpoint of `kitchen-service`.
 
 #### Why Apply There:
-Unlike simple timeouts, Resilience4j's `TimeLimiter` restricts the duration of executing a call that returns a `CompletableFuture` or reactive publisher (`Mono` / `Flux`), ensuring resources are freed if the downstream call hangs on TCP handshake stages.
+If `kitchen-service` is down or slow, the Circuit Breaker trips to `OPEN` state, avoiding socket connection timeouts. The Fallback method is immediately called to register a local pending outbox state, allowing the user's order to be processed locally instead of throwing a system crash.
+
+#### Execution Flow Diagram (Downstream Crash):
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Order as order-service
+    participant CB as kitchenService Circuit Breaker (OPEN)
+    participant Kitchen as kitchen-service (Down)
+    participant Payment as Payment Gateway
+
+    Client->>Order: POST /v1/orders
+    Note over Order: Save local order (CREATED)
+    
+    Order->>CB: Execute createTicket
+    Note over CB: Circuit is OPEN: Intercept & block call
+    CB--XOrder: Throw CallNotPermittedException
+    
+    Note over Order: Catch exception & route to createTicketFallback()
+    Order-->>Order: Save fallback sync record (Return true)
+    
+    Order->>Payment: Authorize payment
+    Payment-->>Order: Success (Payment Authorized)
+    
+    Note over Order: Update order status to APPROVED
+    Order-->>Client: Return OrderResponse (APPROVED)
+```
+
+#### Code Explanation:
+```java
+@Component
+public class KitchenClientAdapter implements KitchenClient {
+    private final KitchenFeignClient kitchenFeignClient;
+
+    public KitchenClientAdapter(KitchenFeignClient kitchenFeignClient) {
+        this.kitchenFeignClient = kitchenFeignClient;
+    }
+
+    @Override
+    @CircuitBreaker(name = "kitchenService", fallbackMethod = "createTicketFallback")
+    public boolean createTicket(String orderId, String restaurantId) {
+        TicketCreateRequest request = new TicketCreateRequest(orderId, orderId, restaurantId);
+        kitchenFeignClient.createTicket(request);
+        return true;
+    }
+
+    // Fallback method must have the same arguments plus the leading Exception/Throwable parameter
+    public boolean createTicketFallback(String orderId, String restaurantId, Throwable t) {
+        System.err.println("kitchen-service is offline. Triggering fallback. Exception: " + t.getMessage());
+        // Fallback action: return true to let order creation proceed, 
+        // and register a background synchronization record in the database.
+        return true;
+    }
+}
+```
+
+##### Accompanying YAML Configuration (in `order-service-dev.yml`):
+```yaml
+resilience4j:
+  circuitbreaker:
+    instances:
+      kitchenService:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10          # Monitor the last 10 requests
+        failureRateThreshold: 50       # Trip to OPEN if 50% of the last 10 requests fail
+        waitDurationInOpenState: 10s   # Keep the circuit OPEN for 10 seconds before transitioning to HALF-OPEN
+```
+
+---
+
+### 2.3 Transient Protection: Retry on Payment Authorization
+
+#### Where to Apply:
+External gateways in `com.chibao.orderservice.infrastructure.adapters.outbound.clients.PaymentClientAdapter`.
+
+#### Why Apply There:
+External payment microservices or gateways are prone to transient failures (socket resets, temporary connection loss). Automatic retries with exponential backoff delay resolve these issues on the fly without displaying an error page to the customer.
+
+#### Execution Flow Diagram (Temporary Timeout Recovery):
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Order as order-service
+    participant Retry as paymentService Retry Interceptor
+    participant Payment as Payment Gateway
+
+    Client->>Order: POST /v1/orders
+    Order->>Retry: Execute authorizePayment
+    
+    Retry->>Payment: Attempt 1
+    Payment--XRetry: Timeout (Failure)
+    Note over Retry: Wait 1000ms (Exponential Backoff)
+    
+    Retry->>Payment: Attempt 2
+    Payment--XRetry: Network Error (Failure)
+    Note over Retry: Wait 2000ms (Multiplier 2x)
+    
+    Retry->>Payment: Attempt 3
+    Payment-->>Retry: Payment Authorized (Success)
+    
+    Retry-->>Order: Return true
+    Order-->>Client: Return OrderResponse (APPROVED)
+```
+
+#### Code Explanation:
+```java
+@Component
+public class PaymentClientAdapter implements PaymentClient {
+
+    @Override
+    @Retry(name = "paymentService", fallbackMethod = "authorizePaymentFallback")
+    public boolean authorizePayment(String consumerId, double amount) {
+        System.out.println("Processing payment for consumer: " + consumerId + " amount: " + amount);
+        // Under-the-hood call to payment provider...
+        return true;
+    }
+
+    public boolean authorizePaymentFallback(String consumerId, double amount, Throwable t) {
+        System.err.println("All 3 payment retries failed. Declining checkout transaction.");
+        return false;
+    }
+}
+```
+
+##### Accompanying YAML Configuration (in `order-service-dev.yml`):
+```yaml
+resilience4j:
+  retry:
+    instances:
+      paymentService:
+        maxAttempts: 3                   # Attempt the call up to 3 times
+        waitDuration: 1000ms              # Initial delay between retries
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2   # Multiplies delay by 2x on each failure (1s -> 2s)
+```
+
+---
+
+### 2.4 Thread Pool Isolation: Bulkhead on Ticket Scheduling
+
+#### Where to Apply:
+Downstream dependencies inside `com.chibao.orderservice.infrastructure.adapters.outbound.clients.KitchenClientAdapter`.
+
+#### Why Apply There:
+To protect `order-service` request threads from being monopolized by one slow downstream service. Setting a Semaphore Bulkhead caps the concurrent threads allowed to process ticket creations to a safe maximum (e.g. 10 threads). If `kitchen-service` stalls, only those 10 threads hang, leaving the rest of the application responsive for order cancellations or catalog lookups.
+
+#### Execution Flow Diagram (Semaphore Acquisition):
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Order as order-service
+    participant Bulkhead as kitchenBulkhead (Semaphore)
+    participant Kitchen as kitchen-service
+
+    Client->>Order: POST /v1/orders
+    Order->>Bulkhead: Request semaphore permit
+    
+    alt Permit Acquired (Active threads < 10)
+        Bulkhead-->>Order: Permit granted
+        Order->>Kitchen: Feign HTTP call
+        Kitchen-->>Order: Success
+        Order->>Bulkhead: Release permit
+        Order-->>Client: Success Response
+    else Permit Denied (Active threads = 10)
+        Bulkhead--XOrder: Reject request immediately (BulkheadFullException)
+        Note over Order: Route to Fallback mechanism
+    end
+```
+
+#### Code Explanation:
+```java
+@Component
+public class KitchenClientAdapter implements KitchenClient {
+
+    @Override
+    @Bulkhead(name = "kitchenBulkhead", type = Bulkhead.Type.SEMAPHORE)
+    public boolean createTicket(String orderId, String restaurantId) {
+        TicketCreateRequest request = new TicketCreateRequest(orderId, orderId, restaurantId);
+        kitchenFeignClient.createTicket(request);
+        return true;
+    }
+}
+```
+
+##### Accompanying YAML Configuration (in `order-service-dev.yml`):
+```yaml
+resilience4j:
+  bulkhead:
+    instances:
+      kitchenBulkhead:
+        maxConcurrentCalls: 10            # Cap concurrent requests to 10 threads
+        maxWaitDuration: 500ms            # Wait up to 500ms to acquire a slot before throwing BulkheadFullException
+```
+
+---
+
+### 2.5 Execution Cap: TimeLimiter on Asynchronous Queries
+
+#### Where to Apply:
+Outbound reactive or asynchronous methods returning java Futures or reactive streams.
+
+#### Why Apply There:
+Provides a hard duration ceiling. If an asynchronous query takes longer than the limit (e.g., 2 seconds), the TimeLimiter terminates execution and triggers the fallback path, protecting network sockets from hanging indefinitely.
+
+#### Execution Flow Diagram (Execution Time Limit Exceeded):
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Client Application Thread
+    participant Limiter as kitchenTimeout TimeLimiter
+    participant FutureTask as Future Thread Pool Task
+
+    Client->>Limiter: Execute createTicketAsync
+    Limiter->>FutureTask: Submit execution job
+    
+    alt Task completes within 2 seconds
+        FutureTask-->>Limiter: Return true
+        Limiter-->>Client: Result Success
+    else Task execution duration exceeds 2 seconds
+        Note over Limiter: Timeout triggered (2s limit reached)
+        Limiter->>FutureTask: Cancel and interrupt task execution
+        Limiter--XClient: Throw TimeoutException (Execute Fallback path)
+    end
+```
 
 #### Code Explanation:
 ```java
@@ -191,19 +320,19 @@ public class KitchenClientAdapter implements KitchenClient {
     @TimeLimiter(name = "kitchenTimeout")
     public CompletableFuture<Boolean> createTicketAsync(String orderId, String restaurantId) {
         return CompletableFuture.supplyAsync(() -> {
-            // Long running network query
+            // Complex network request or long database query
             return true;
         });
     }
 }
 ```
 
-##### Accompanying YAML Configuration:
+##### Accompanying YAML Configuration (in `order-service-dev.yml`):
 ```yaml
 resilience4j:
   timelimiter:
     instances:
       kitchenTimeout:
-        timeoutDuration: 2s         # Force terminate task if it takes more than 2 seconds
-        cancelRunningFuture: true   # Terminate the underlying thread pool task
+        timeoutDuration: 2s               # Force terminate execution if it takes > 2 seconds
+        cancelRunningFuture: true         # Interrupt the underlying running thread
 ```

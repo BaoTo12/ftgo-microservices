@@ -6,16 +6,14 @@ import com.chibao.kitchenservice.infrastructure.adapters.inbound.dto.TicketCreat
 import com.chibao.kitchenservice.infrastructure.adapters.inbound.dto.TicketResponse;
 import com.chibao.kitchenservice.infrastructure.adapters.inbound.mapper.TicketControllerMapper;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/v1/tickets")
 public class TicketRestController {
     private final TicketManagementUseCase useCase;
-
-    public TicketRestController(TicketManagementUseCase useCase) {
-        this.useCase = useCase;
-    }
 
     @PostMapping
     public TicketResponse createTicket(@Valid @RequestBody TicketCreateRequest request) {

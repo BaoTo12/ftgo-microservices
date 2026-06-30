@@ -11,6 +11,7 @@ import com.chibao.orderservice.domain.model.Order;
 import com.chibao.orderservice.domain.model.OrderItem;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -24,38 +25,67 @@ public class OrderManagementService implements OrderManagementUseCase {
 
 
     @Override
+    @Transactional
     public OrderResult createOrder(CreateOrderCommand command) {
         List<OrderItem> items = OrderMapper.toDomainItems(command);
         Order order = new Order(UUID.randomUUID().toString(), command.getConsumerId(), command.getRestaurantId(), command.getTotalAmount(), items);
         Order savedOrder = repository.save(order);
 
         try {
+            // 1. Gọi Kitchen - Nếu mạch OPEN hoặc Kitchen sập, adapter tự trả về false nhờ Fallback
             boolean ticketCreated = kitchenClient.createTicket(savedOrder.getId(), savedOrder.getRestaurantId());
             if (!ticketCreated) {
-                savedOrder.reject();
-                repository.save(savedOrder);
-                return OrderMapper.toResult(savedOrder);
+                return rejectAndSaveOrder(savedOrder);
             }
 
+            // 2. Gọi Payment
             boolean paymentAuthorized = paymentClient.authorizePayment(savedOrder.getConsumerId(), savedOrder.getTotalAmount());
             if (!paymentAuthorized) {
-                savedOrder.reject();
-                repository.save(savedOrder);
-                kitchenClient.rejectTicket(savedOrder.getId());
-                return OrderMapper.toResult(savedOrder);
+                // Nếu payment lỗi, ta phải hủy ticket bên Kitchen.
+                // Hàm này phải được bọc an toàn để không làm nghẽn luồng xử lý chính.
+                safelyRejectKitchenTicket(savedOrder.getId());
+                return rejectAndSaveOrder(savedOrder);
             }
 
+            // 3. Quy trình hoàn thành thành công hoàn toàn
             savedOrder.approve();
             repository.save(savedOrder);
-            kitchenClient.confirmTicket(savedOrder.getId());
+            safelyConfirmKitchenTicket(savedOrder.getId());
 
         } catch (Exception ex) {
-            savedOrder.reject();
-            repository.save(savedOrder);
-            kitchenClient.rejectTicket(savedOrder.getId());
+            // Chốt chặn cuối cùng bảo vệ Domain Core khỏi các lỗi Runtime bất ngờ
+            System.err.println("Fatal error during order creation lifecycle: " + ex.getMessage());
+            safelyRejectKitchenTicket(savedOrder.getId());
+            return rejectAndSaveOrder(savedOrder);
         }
 
         return OrderMapper.toResult(savedOrder);
+    }
+
+    // Tách riêng logic cập nhật trạng thái lỗi để tránh lặp code và quản lý tường minh
+    private OrderResult rejectAndSaveOrder(Order order) {
+        order.reject();
+        Order updatedOrder = repository.save(order);
+        return OrderMapper.toResult(updatedOrder);
+    }
+
+    // Cô lập hoàn toàn cuộc gọi mạng hủy vé, lỗi hạ tầng không được phép làm crash luồng chính
+    private void safelyRejectKitchenTicket(String orderId) {
+        try {
+            kitchenClient.rejectTicket(orderId);
+        } catch (Exception e) {
+            System.err.println("[SAGA COMPENSATION FAILED] Không thể gửi lệnh hủy vé sang Kitchen cho đơn hàng: "
+                    + orderId + ". Cần cơ chế Retry tự động hoặc can thiệp thủ công! Lỗi: " + e.getMessage());
+        }
+    }
+
+    private void safelyConfirmKitchenTicket(String orderId) {
+        try {
+            kitchenClient.confirmTicket(orderId);
+        } catch (Exception e) {
+            System.err.println("[CRITICAL] Không thể gửi lệnh xác nhận vé sang Kitchen cho đơn hàng: "
+                    + orderId + ". Lỗi: " + e.getMessage());
+        }
     }
 
     @Override

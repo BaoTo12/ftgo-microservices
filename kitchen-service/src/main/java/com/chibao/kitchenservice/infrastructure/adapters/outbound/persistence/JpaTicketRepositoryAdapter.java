@@ -5,15 +5,14 @@ import com.chibao.kitchenservice.domain.model.Ticket;
 import com.chibao.kitchenservice.infrastructure.adapters.outbound.persistence.entity.TicketEntity;
 import com.chibao.kitchenservice.infrastructure.adapters.outbound.persistence.mapper.TicketEntityMapper;
 import com.chibao.kitchenservice.infrastructure.adapters.outbound.persistence.repository.SpringDataTicketRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class JpaTicketRepositoryAdapter implements TicketRepository {
-    private final SpringDataTicketRepository repository;
 
-    public JpaTicketRepositoryAdapter(SpringDataTicketRepository repository) {
-        this.repository = repository;
-    }
+    private final SpringDataTicketRepository repository;
 
     @Override
     public Ticket save(Ticket ticket) {

@@ -16,7 +16,6 @@ import java.time.LocalDateTime;
 public class TicketManagementService implements TicketManagementUseCase {
     private final TicketRepository repository;
 
-
     @Override
     public TicketResult createTicket(CreateTicketCommand command) {
         Ticket ticket = new Ticket(command.getId(), command.getOrderId(), command.getRestaurantId(), LocalDateTime.now().plusMinutes(30));

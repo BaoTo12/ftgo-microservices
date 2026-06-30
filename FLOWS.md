@@ -1,6 +1,6 @@
-# FTGO Microservices: API Endpoints & Core System Flows
+# FTGO Microservices: API Endpoints, Core Flows & Resilience Guide
 
-This document combines the service topology, API contracts, bootstrapping processes, registration sequences, and distributed transactional flows (Saga Orchestration) across the **`ftgo-microservices`** workspace.
+This document maps out the system topology, API contracts, boot sequences, registration schedules, eventual consistency flows (Saga Pattern), and **Resilience4j boundaries** (Circuit Breakers, Retries, Bulkheads, Rate Limiters, and TimeLimiters) across the **`ftgo-microservices`** workspace.
 
 ---
 
@@ -8,9 +8,10 @@ This document combines the service topology, API contracts, bootstrapping proces
 
 The application represents a reference architecture for food delivery ordering, restaurant ticketing, dynamic configuration, and discovery management:
 1. **Centralized Configuration**: The `config-server` serves environment properties (connection ports, database URLs, Eureka zones) from a shared directory (`shared-config-repo`).
-2. **Service Registry**: The `eurekaserver` acts as a coordinator, tracking host names/IP addresses and mapping logical microservice names.
+2. **Service Discovery**: The `eurekaserver` acts as a coordinator, tracking host names/IP addresses and mapping logical microservice names.
 3. **Dynamic Outbound Call Routing**: Microservices use OpenFeign to invoke target endpoints without hardcoding IP addresses or ports, dynamically querying Eureka to locate instances.
 4. **Distributed Saga Transaction**: Orchestrates complex order placements across multiple services. If a middle step (e.g. payment authorization) fails, it executes compensating operations (e.g. ticket cancellation) to roll back downstream changes.
+5. **Fault Tolerance & Isolation**: Employs Resilience4j to prevent cascading timeouts, rate limit excessive traffic, retry transient network anomalies, and fallback gracefully when downstream components crash.
 
 ---
 
@@ -27,12 +28,12 @@ graph TD
     OrderDB[(PostgreSQL orderdb)]
     KitchenDB[(PostgreSQL kitchendb)]
 
-    Client -->|POST /v1/orders| Order
-    Order -->|Register / Lookup| Eureka
-    Kitchen -->|Register / Lookup| Eureka
-    Order -.->|Fetch Configs| Config
-    Kitchen -.->|Fetch Configs| Config
-    Order -->|Dynamic Feign Call| Kitchen
+    Client -->|1. Rate Limited POST /v1/orders| Order
+    Order -->|2. Register / Lookup| Eureka
+    Kitchen -->|3. Register / Lookup| Eureka
+    Order -.->|4. Fetch Configs| Config
+    Kitchen -.->|5. Fetch Configs| Config
+    Order -->|6. Bulkhead & Circuit Breaked Feign Call| Kitchen
     
     Order --> OrderDB
     Kitchen --> KitchenDB
@@ -47,6 +48,8 @@ graph TD
 Exposes REST endpoints to place and monitor customer checkouts:
 
 1. **Create Order** (`POST /v1/orders`):
+   * **Resilience Policy**: Protected by the **`orderCreationLimit` Rate Limiter** (Limits requests to 50 calls per second; excess calls are rejected immediately with a `429 Too Many Requests` equivalent).
+   * **Location**: `com.chibao.orderservice.infrastructure.adapters.inbound.controller.OrderRestController`
    * **Body Payload (`OrderCreateRequest`)**:
      ```json
      {
@@ -69,7 +72,6 @@ Exposes REST endpoints to place and monitor customer checkouts:
      ```
 
 2. **Get Order Details** (`GET /v1/orders/{orderId}`):
-   * **Workflow**: Queries `orderdb` and returns order state.
    * **Response Payload (`OrderResponse`)**: Mapped to database state.
 
 ---
@@ -79,6 +81,7 @@ Exposes REST endpoints to place and monitor customer checkouts:
 Exposes REST endpoints to manage and retrieve food preparation tickets:
 
 1. **Create Ticket** (`POST /v1/tickets`):
+   * **Location**: `com.chibao.kitchenservice.infrastructure.adapters.inbound.controller.TicketRestController`
    * **Body Payload (`TicketCreateRequest`)**:
      ```json
      {
@@ -167,21 +170,33 @@ sequenceDiagram
 
 ---
 
-### 4.3 Saga Order Placement Orchestration
+### 4.3 Saga Order Placement with Resilience Boundaries
 
-#### Flow A: Happy Path (Successful checkout)
+The sequence diagrams below detail how the business flow changes when Resilience4j interceptors protect API paths.
+
+#### Flow A: Successful Checkout with Rate Limiter and Bulkhead Active
+
+Incoming orders must first acquire a Rate Limiter permit. When executing outbound calls, the thread must pass through a Semaphore Bulkhead to limit concurrent requests.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Client
-    participant Order as order-service (8081)
+    participant Controller as OrderRestController
+    participant Order as order-service
+    participant Bulkhead as kitchenBulkhead (Semaphore)
     participant Eureka as eureka-server (8070)
     participant Kitchen as kitchen-service (8082)
     participant Payment as Payment Gateway
 
-    Client->>Order: POST /v1/orders
-    Note over Order: Save local order (CREATED)
+    Client->>Controller: POST /v1/orders
+    Note over Controller: Intercepted by orderCreationLimit Rate Limiter
+    Controller-->>Order: Rate Limit Check Passed
+    
+    Note over Order: Save local order (status: CREATED)
+    
+    Order->>Bulkhead: Acquire Semaphore Permit
+    Bulkhead-->>Order: Permit Acquired (Max concurrent limit not exceeded)
     
     Order->>Eureka: Lookup address of "kitchen-service"
     Eureka-->>Order: Return http://localhost:8082
@@ -190,8 +205,8 @@ sequenceDiagram
     Note over Kitchen: Save local ticket (CREATED)
     Kitchen-->>Order: Return TicketResponse (CREATED)
     
-    Order->>Payment: Authorize transaction amount
-    Payment-->>Order: Payment Authorized (Success)
+    Order->>Payment: Authorize amount (Interpreted by Retry)
+    Payment-->>Order: Payment Success
     
     Note over Order: Update order status to APPROVED
     Order-->>Client: Return OrderResponse (APPROVED)
@@ -199,53 +214,67 @@ sequenceDiagram
 
 ---
 
-#### Flow B: Payment Authorization Failure (Compensation Rollback)
+#### Flow B: Downstream Crash Intercepted by Circuit Breaker & Fallback
+
+If `kitchen-service` crashes, the Circuit Breaker trips to `OPEN`, immediately returning a cached/mocked ticket fallback state and allowing the Saga to process order creation without failing.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Client
-    participant Order as order-service (8081)
-    participant Kitchen as kitchen-service (8082)
+    participant Order as order-service
+    participant CB as kitchenService Circuit Breaker (OPEN)
+    participant Kitchen as kitchen-service (Down)
     participant Payment as Payment Gateway
 
     Client->>Order: POST /v1/orders
     Note over Order: Save local order (CREATED)
     
-    Order->>Kitchen: Feign POST: /v1/tickets (via Eureka lookup)
-    Note over Kitchen: Save local ticket (CREATED)
-    Kitchen-->>Order: Return TicketResponse
+    Order->>CB: Execute createTicket
+    Note over CB: Circuit is OPEN: Intercept & block call
+    CB--XOrder: Fast Failure (Call Blocked)
+    Note over Order: Execute createTicketFallback method
+    Order-->>Order: Return true (Fallback mock ticket created)
     
-    Order->>Payment: Authorize transaction amount
-    Payment-->>Order: Payment Declined (Failure)
+    Order->>Payment: Authorize payment
+    Payment-->>Order: Success
     
-    Note over Order: Start Rollback: Update order to REJECTED
-    Order->>Kitchen: Feign POST: /v1/tickets (Compensating action: rejectTicket)
-    Note over Kitchen: Cancel/Reject ticket details
-    Order-->>Client: Return OrderResponse (REJECTED)
+    Note over Order: Update order status to APPROVED
+    Order-->>Client: Return OrderResponse (APPROVED)
 ```
 
 ---
 
-#### Flow C: Network Outage Exception Handling
+#### Flow C: Transient Network Failure Recovered by Retry
 
-If `kitchen-service` is unreachable or times out during the Feign request:
+When the Payment Gateway experiences short network timeouts, the **Retry** interceptor automatically restarts the payment transaction with exponential backoff delays.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Client
-    participant Order as order-service (8081)
-    participant Kitchen as kitchen-service (8082)
+    participant Order as order-service
+    participant Retry as paymentService Retry Interceptor
+    participant Payment as Payment Gateway
 
     Client->>Order: POST /v1/orders
     Note over Order: Save local order (CREATED)
     
-    Order->>Kitchen: Feign POST: /v1/tickets
-    Note over Kitchen: Network Timeout / Exception
-    Kitchen--XOrder: Connection Error / Down
+    Order->>Kitchen: Create ticket (Success)
     
-    Note over Order: Exception Caught: Update order to REJECTED
-    Order->>Kitchen: Try compensating action: rejectTicket
-    Order-->>Client: Return OrderResponse (REJECTED)
+    Order->>Retry: Execute authorizePayment
+    
+    Retry->>Payment: Attempt 1 (HTTP POST)
+    Payment--XRetry: Connection Timeout (Failure)
+    Note over Retry: Wait 1000ms (Exponential Backoff)
+    
+    Retry->>Payment: Attempt 2 (HTTP POST)
+    Payment--XRetry: Read Timeout (Failure)
+    Note over Retry: Wait 2000ms (Multiplier 2x)
+    
+    Retry->>Payment: Attempt 3 (HTTP POST)
+    Payment-->>Retry: Payment Authorized (Success)
+    
+    Note over Order: Update order status to APPROVED
+    Order-->>Client: Return OrderResponse (APPROVED)
 ```

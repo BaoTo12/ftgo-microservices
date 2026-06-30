@@ -2,13 +2,24 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:${ORDER_DB_PORT:5431}/${ORDER_DB_NAME:orderdb}
     username: order_user
-    password: {cipher}d6aa219f08d23a2c5991c23d6aaa34a449fc849bc7f4217358f303cf6ffd846f
+    password: "{cipher}d6aa219f08d23a2c5991c23d6aaa34a449fc849bc7f4217358f303cf6ffd846f"
     driver-class-name: org.postgresql.Driver
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: update
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true # BẬT MỞ: Ép Actuator phải quét và hiển thị module Circuit Breaker
 eureka:
   client:
     enabled: true
@@ -18,3 +29,23 @@ eureka:
       defaultZone: http://localhost:8070/eureka/
   instance:
     prefer-ip-address: true
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      kitchenAdapterBreaker:
+        registerHealthIndicator: true # Đăng ký chỉ số sức khỏe với Actuator
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10           # Theo dõi 10 cuộc gọi gần nhất
+        minimumNumberOfCalls: 5         # Phải gọi ít nhất 5 lần mới bắt đầu tính tỷ lệ lỗi
+        failureRateThreshold: 50        # Nếu >= 50% số cuộc gọi bị lỗi thì ngắt mạch
+        waitDurationInOpenState: 15s    # Mạch mở trong 15 giây rồi chuyển sang Half-Open
+        permittedNumberOfCallsInHalfOpenState: 3 # Thử nghiệm 3 cuộc gọi ở trạng thái Half-Open
+
+      paymentAdapterBreaker:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 20s    # Payment quan trọng hơn nên cho thời gian hồi phục lâu hơn
+        permittedNumberOfCallsInHalfOpenState: 3

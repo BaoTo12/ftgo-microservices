@@ -35,6 +35,7 @@ public class OrderEntity {
     @JoinColumn(name = "order_id")
     private List<OrderLineItemEntity> lineItems;
 
-    public OrderEntity() {}
+    public OrderEntity() {
+    }
 
 }
