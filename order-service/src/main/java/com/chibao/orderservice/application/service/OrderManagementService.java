@@ -41,8 +41,7 @@ public class OrderManagementService implements OrderManagementUseCase {
             // 2. Gọi Payment
             boolean paymentAuthorized = paymentClient.authorizePayment(savedOrder.getConsumerId(), savedOrder.getTotalAmount());
             if (!paymentAuthorized) {
-                // Nếu payment lỗi, ta phải hủy ticket bên Kitchen.
-                // Hàm này phải được bọc an toàn để không làm nghẽn luồng xử lý chính.
+                // Nếu payment lỗi -? hủy ticket bên Kitchen.
                 safelyRejectKitchenTicket(savedOrder.getId());
                 return rejectAndSaveOrder(savedOrder);
             }
@@ -53,7 +52,6 @@ public class OrderManagementService implements OrderManagementUseCase {
             safelyConfirmKitchenTicket(savedOrder.getId());
 
         } catch (Exception ex) {
-            // Chốt chặn cuối cùng bảo vệ Domain Core khỏi các lỗi Runtime bất ngờ
             System.err.println("Fatal error during order creation lifecycle: " + ex.getMessage());
             safelyRejectKitchenTicket(savedOrder.getId());
             return rejectAndSaveOrder(savedOrder);
@@ -62,14 +60,12 @@ public class OrderManagementService implements OrderManagementUseCase {
         return OrderMapper.toResult(savedOrder);
     }
 
-    // Tách riêng logic cập nhật trạng thái lỗi để tránh lặp code và quản lý tường minh
     private OrderResult rejectAndSaveOrder(Order order) {
         order.reject();
         Order updatedOrder = repository.save(order);
         return OrderMapper.toResult(updatedOrder);
     }
 
-    // Cô lập hoàn toàn cuộc gọi mạng hủy vé, lỗi hạ tầng không được phép làm crash luồng chính
     private void safelyRejectKitchenTicket(String orderId) {
         try {
             kitchenClient.rejectTicket(orderId);

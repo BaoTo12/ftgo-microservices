@@ -49,3 +49,14 @@ resilience4j:
         failureRateThreshold: 50
         waitDurationInOpenState: 20s    # Payment quan trọng hơn nên cho thời gian hồi phục lâu hơn
         permittedNumberOfCallsInHalfOpenState: 3
+  bulkhead:
+    instances:
+      paymentBulkhead:
+        maxConcurrentCalls: 20 # Max concurrent threads allowed to call Payment simultaneously
+        maxWaitDuration: 0ms   # Fail fast immediately if the limit is reached
+  threadpoolbulkhead:
+    instances:
+      kitchenBulkhead:
+        maxThreadPoolSize: 10   # Maximum worker threads dedicated to Kitchen calls
+        coreThreadPoolSize: 5   # Keeps 5 threads warm and ready
+        queueCapacity: 5        # Waiting queue size before rejecting tasks
