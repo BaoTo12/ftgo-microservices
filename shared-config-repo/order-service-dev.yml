@@ -42,21 +42,48 @@ resilience4j:
         waitDurationInOpenState: 15s    # Mạch mở trong 15 giây rồi chuyển sang Half-Open
         permittedNumberOfCallsInHalfOpenState: 3 # Thử nghiệm 3 cuộc gọi ở trạng thái Half-Open
 
-      paymentAdapterBreaker:
+      paymentCircuitBreaker:
         slidingWindowType: COUNT_BASED
         slidingWindowSize: 10
         minimumNumberOfCalls: 5
         failureRateThreshold: 50
-        waitDurationInOpenState: 20s    # Payment quan trọng hơn nên cho thời gian hồi phục lâu hơn
+        waitDurationInOpenState: 20s
         permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
   bulkhead:
     instances:
       paymentBulkhead:
         maxConcurrentCalls: 20 # Max concurrent threads allowed to call Payment simultaneously
         maxWaitDuration: 0ms   # Fail fast immediately if the limit is reached
-  threadpoolbulkhead:
+  thread-pool-bulkhead:
     instances:
       kitchenBulkhead:
         maxThreadPoolSize: 10   # Maximum worker threads dedicated to Kitchen calls
         coreThreadPoolSize: 5   # Keeps 5 threads warm and ready
         queueCapacity: 5        # Waiting queue size before rejecting tasks
+
+  retry:
+    instances:
+      kitchenRetry:
+        maxRetryAttempts: 3
+        waitDuration: 2000ms
+        retryExceptions:
+          - feign.RetryableException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.client.ResourceAccessException
+        ignoreExceptions:
+          - feign.FeignException.BadRequest
+          - feign.FeignException.Unauthorized
+      kitchenCompensationRetry:
+        maxRetryAttempts: 5
+        waitDuration: 5000ms
+        retryExceptions:
+          - java.lang.Exception
+      paymentRetry:
+        maxRetryAttempts: 3
+        waitDuration: 1500ms
+        retryExceptions:
+          - feign.RetryableException
+          - java.util.concurrent.TimeoutException
+        ignoreExceptions:
+          - feign.FeignException.BadRequest

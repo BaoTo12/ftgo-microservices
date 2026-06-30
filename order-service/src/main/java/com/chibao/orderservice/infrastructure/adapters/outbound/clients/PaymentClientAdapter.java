@@ -2,6 +2,8 @@ package com.chibao.orderservice.infrastructure.adapters.outbound.clients;
 
 import com.chibao.orderservice.application.ports.outbound.PaymentClient;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -10,6 +12,8 @@ import java.math.BigDecimal;
 public class PaymentClientAdapter implements PaymentClient {
 
     @Override
+    @Retry(name = "paymentRetry")
+    @CircuitBreaker(name = "paymentCircuitBreaker", fallbackMethod = "authorizePaymentFallback")
     @Bulkhead(name = "paymentBulkhead", fallbackMethod = "authorizePaymentFallback")
     public boolean authorizePayment(String consumerId, BigDecimal amount) {
         System.out.println("Hexagonal Infrastructure Adapter: authorizing payment via client: " + amount);
