@@ -8,7 +8,7 @@ import com.chibao.orderservice.application.ports.outbound.KitchenClient;
 import com.chibao.orderservice.application.ports.outbound.OrderRepository;
 import com.chibao.orderservice.application.ports.outbound.PaymentClient;
 import com.chibao.orderservice.domain.model.Order;
-import com.chibao.orderservice.domain.model.OrderLineItem;
+import com.chibao.orderservice.domain.model.OrderItem;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -25,7 +25,7 @@ public class OrderManagementService implements OrderManagementUseCase {
 
     @Override
     public OrderResult createOrder(CreateOrderCommand command) {
-        List<OrderLineItem> items = OrderMapper.toDomainItems(command);
+        List<OrderItem> items = OrderMapper.toDomainItems(command);
         Order order = new Order(UUID.randomUUID().toString(), command.getConsumerId(), command.getRestaurantId(), command.getTotalAmount(), items);
         Order savedOrder = repository.save(order);
 

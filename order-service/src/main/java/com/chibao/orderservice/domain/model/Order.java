@@ -14,9 +14,9 @@ public class Order {
     private final BigDecimal totalAmount;
     private OrderState state;
     private Long version;
-    private final List<OrderLineItem> lineItems;
+    private final List<OrderItem> lineItems;
 
-    public Order(String id, String consumerId, String restaurantId, BigDecimal totalAmount, List<OrderLineItem> lineItems) {
+    public Order(String id, String consumerId, String restaurantId, BigDecimal totalAmount, List<OrderItem> lineItems) {
         this.id = id;
         this.consumerId = consumerId;
         this.restaurantId = restaurantId;
@@ -25,7 +25,7 @@ public class Order {
         this.state = OrderState.APPROVAL_PENDING;
     }
 
-    public Order(String id, String consumerId, String restaurantId, BigDecimal totalAmount, List<OrderLineItem> lineItems, OrderState state, Long version) {
+    public Order(String id, String consumerId, String restaurantId, BigDecimal totalAmount, List<OrderItem> lineItems, OrderState state, Long version) {
         this.id = id;
         this.consumerId = consumerId;
         this.restaurantId = restaurantId;

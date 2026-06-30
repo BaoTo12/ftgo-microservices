@@ -1,7 +1,7 @@
 package com.chibao.orderservice.infrastructure.adapters.outbound.persistence.mapper;
 
 import com.chibao.orderservice.domain.model.Order;
-import com.chibao.orderservice.domain.model.OrderLineItem;
+import com.chibao.orderservice.domain.model.OrderItem;
 import com.chibao.orderservice.infrastructure.adapters.outbound.persistence.entity.OrderEntity;
 import com.chibao.orderservice.infrastructure.adapters.outbound.persistence.entity.OrderLineItemEntity;
 
@@ -28,8 +28,8 @@ public class OrderEntityMapper {
 
     public static Order toDomain(OrderEntity entity) {
         if (entity == null) return null;
-        List<OrderLineItem> items = entity.getLineItems().stream()
-                .map(item -> new OrderLineItem(item.getMenuItemId(), item.getName(), item.getPrice(), item.getQuantity()))
+        List<OrderItem> items = entity.getLineItems().stream()
+                .map(item -> new OrderItem(item.getMenuItemId(), item.getName(), item.getPrice(), item.getQuantity()))
                 .collect(Collectors.toList());
         return new Order(
                 entity.getId(),

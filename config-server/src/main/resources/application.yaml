@@ -16,4 +16,5 @@ spring:
 #          search-paths: 'order-service,kitchen-service' # Optional subdirectories
 #          clone-on-start: true                          # Validates the repo connection during startup
 
-
+encrypt:
+  key: ${ENCRYPT_KEY:ZJ4Uuw7YMPpFUc92Fv5RTjuw9Wgl2mIXNGyBhWBiNsk=}
