@@ -1,0 +1,33 @@
+
+spring:
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          # Enable automatic route creation based on registered services in Eureka
+          enabled: false
+#          lower-case-service-id: true
+      routes:
+        - id: order-service
+          uri: lb://ORDER-SERVICE # Tên đăng ký với eureka
+          predicates:
+            - Path=/api/v1/orders/**
+          filters:
+            # Captures everything after '/order/' and forwards only the remainder downstream
+            - RewritePath=/api/v1/orders(?<segment>.*), /v1/orders$\\{segment}
+        - id: explicit-kitchen-service-route
+          uri: lb://KITCHEN-SERVICE
+          predicates:
+            - Path=/api/v1/kitchen/**
+          filters:
+            - RewritePath=/api/v1/kitchen(?<segment>.*), v1/kitchen$\\{segment}
+management:
+  endpoint:
+    gateway:
+      access: read-only
+
+  endpoints:
+    web:
+      exposure:
+        # Expose the gateway endpoint over the HTTP transport layer
+        include: health, info, gateway

@@ -2,7 +2,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:${KITCHEN_DB_PORT:5432}/${KITCHEN_DB_NAME:kitchendb}
     username: kitchen_user
-    password: {cipher}5dbf6c87aae74a83ce6a580f611cbf09163b02addc6dfac80f0d4f7acf18908a
+    password: "{cipher}5dbf6c87aae74a83ce6a580f611cbf09163b02addc6dfac80f0d4f7acf18908a"
     driver-class-name: org.postgresql.Driver
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
